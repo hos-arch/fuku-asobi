@@ -101,13 +101,21 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
 <div id="panel" role="dialog" aria-modal="true" aria-labelledby="ptitle">
   <div class="sheet">
     <h1 id="ptitle">支援者メニュー</h1>
-    <p class="note">下の2つの絵は、左から「とめる／再開」「おしまい」です。音は録音も送信もしません。名前や記録は保存しません。</p>
+    <p class="note">下の2つの絵は、左から「とめる／再開」「おしまい」です。場面は「風車」か「しゃぼん玉」を選べます。音は録音も送信もしません。名前や記録は保存しません。</p>
 
     <div class="row">
       <h2>いまの息（支援者だけに見えます）</h2>
       <div class="meter"><i id="mFill"></i><span id="mText">0%</span></div>
       <p class="note" id="micNote">マイク：まだ使っていません</p>
       <button class="opt wide" id="calBtn">周りの音を測りなおす（2秒、静かに）</button>
+    </div>
+
+    <div class="row">
+      <h2>場面</h2>
+      <div class="opts">
+        <button class="opt" data-set="scene" data-v="wheel">風車</button>
+        <button class="opt" data-set="scene" data-v="bubble">しゃぼん玉</button>
+      </div>
     </div>
 
     <div class="row">
@@ -196,7 +204,7 @@ window.addEventListener('resize', resize);
 resize();
 
 // ---- 設定（保存しない）----
-const S = { sens: 10, range: 28, voiceGate: true, peaks: 3, speed: 'm', vol: 30, sound: true };
+const S = { sens: 10, range: 28, voiceGate: true, peaks: 3, speed: 'm', vol: 30, sound: true, scene: 'wheel' };
 const SPEED = { s: 0.6, m: 1, l: 1.45 };
 let frozen = false, dusk = 0, duskT = 0, duskApplied = 0;
 
@@ -415,6 +423,78 @@ function drawFx(){
   });
 }
 
+// ---- しゃぼん玉 ----
+// 長く吹くと、わっかの上で玉が大きくなる。息をやめると、玉がふわっと離れて飛んでいく。
+// 強く吹くと、小さな玉がたくさん出る。玉は割れない。
+const bub = { big: null, floats: [], holdT: 0 };
+function resetBubbles(){ bub.big = null; bub.floats.length = 0; bub.holdT = 0; }
+function wandPos(){ return { x: cx, y: H * 0.8 }; }
+function updateBubble(dt){
+  const w = wandPos();
+  // 玉を作る（息が出たとき）
+  if (!bub.big && env > 0.08) bub.big = { r: R * 0.05, x: w.x, y: w.y, attached: true };
+  const b = bub.big;
+  if (b){
+    if (env > 0.05){
+      b.attached = true; bub.holdT = 0;
+      b.r = Math.min(R * 0.95, b.r + R * (0.09 + 0.3 * env) * dt);
+    } else {
+      bub.holdT += dt;
+      if (bub.holdT > 0.25){
+        // 息をやめたら、玉がふわっと離れる
+        bub.floats.push({ x: b.x, y: b.y, r: b.r, vx: R * 0.05, vy: -R * 0.12, t: 0, life: 7, ph: rnd(0, 6) });
+        bub.big = null; bub.holdT = 0;
+        bell(0.03);
+      }
+    }
+    if (bub.big){ b.x = w.x; b.y = w.y - R * 0.1 - b.r; }
+  }
+  // 強く吹くと、小さな玉が出る
+  if (env > 0.6 && bub.floats.length < 16 && Math.random() < env * dt * 4){
+    bub.floats.push({ x: w.x + rnd(-R * 0.12, R * 0.12), y: w.y - R * 0.12, r: R * rnd(0.03, 0.07), vx: rnd(-1, 1) * R * 0.08, vy: -R * rnd(0.22, 0.4), t: 0, life: rnd(3.5, 5.5), ph: rnd(0, 6) });
+  }
+  for (let i = bub.floats.length - 1; i >= 0; i--){
+    const f = bub.floats[i];
+    f.t += dt;
+    f.x += (f.vx + Math.sin(f.t * 0.9 + f.ph) * R * 0.03) * dt;
+    f.y += f.vy * dt;
+    if (f.t > f.life || f.y < -f.r * 2) bub.floats.splice(i, 1);
+  }
+}
+function drawBubble(x, y, r, a, ph){
+  ctx.save(); ctx.globalAlpha = a;
+  const n = 22, pts = [];
+  for (let i = 0; i < n; i++){
+    const an = i / n * Math.PI * 2, rr = r * (1 + 0.018 * Math.sin(i * 3 + T * 1.2 + ph));
+    pts.push({ x: x + Math.cos(an) * rr, y: y + Math.sin(an) * rr });
+  }
+  smoothClosed(pts);
+  const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+  g.addColorStop(0, 'rgba(255,255,255,.75)');
+  g.addColorStop(0.7, 'rgba(218,236,246,.30)');
+  g.addColorStop(1, 'rgba(186,216,236,.50)');
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = 'rgba(120,160,185,.5)'; ctx.lineWidth = Math.max(1.2, r * 0.03); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, r * 0.7, Math.PI * 1.1, Math.PI * 1.38);
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = Math.max(2, r * 0.07); ctx.lineCap = 'round'; ctx.stroke();
+  ctx.restore();
+}
+function drawBubbleScene(){
+  const w = wandPos();
+  // わっか（ストローの輪）
+  ctx.save();
+  ctx.strokeStyle = '#b89e74'; ctx.lineWidth = R * 0.05; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.ellipse(w.x, w.y, R * 0.14, R * 0.09, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(w.x, w.y); ctx.lineTo(w.x + R * 0.2, w.y + R * 0.55); ctx.stroke();
+  ctx.restore();
+  bub.floats.forEach(f => {
+    const left = f.life - f.t;
+    const a = clamp(left / 1.5, 0, 1) * 0.95 * clamp(f.t / 0.3, 0, 1);
+    drawBubble(f.x, f.y, f.r, a, f.ph);
+  });
+  if (bub.big) drawBubble(bub.big.x, bub.big.y, bub.big.r, 1, 0);
+}
+
 // ---- 背景のにじみ ----
 const WASH = [
   { x: 0.16, y: 0.22, r: 0.32, c: 'rgba(246,190,204,.26)', k: 31 },
@@ -446,12 +526,12 @@ function frame(now){
   dusk += (duskT - dusk) * Math.min(1, dt * 0.2);
   if (Math.abs(dusk - duskApplied) > 0.02){ duskApplied = dusk; applyVol(); }
   updateBreath(now, dt);
-  if (!frozen){ T += dt; updateWheel(dt); }
+  if (!frozen){ T += dt; if (S.scene === 'wheel') updateWheel(dt); else updateBubble(dt); }
   ctx.fillStyle = '#f6eddc'; ctx.fillRect(0, 0, W, H);
   if (paper) ctx.drawImage(paper, 0, 0, W, H);
   drawWash();
-  drawWheel();
-  drawFx();
+  if (S.scene === 'wheel'){ drawWheel(); drawFx(); }
+  else drawBubbleScene();
   if (dusk > 0.001){
     ctx.fillStyle = 'rgba(226,150,118,' + (0.30 * dusk).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = 'rgba(90,70,110,' + (0.10 * dusk).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
@@ -462,6 +542,10 @@ function frame(now){
 requestAnimationFrame(frame);
 
 // ---- 支援者の操作 ----
+function setScene(v){
+  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles();
+  markOpts();
+}
 function setFrozen(f){
   frozen = f;
   $('freezeBtn').setAttribute('aria-pressed', String(f));
@@ -498,7 +582,7 @@ function drawMeter(){
     : 'マイク：使っています（周りの音 ' + floorDb.toFixed(0) + ' dB／いま ' + lowDbNow.toFixed(0) + ' dB／声らしい山 ' + peaksNow + '）';
 }
 function markOpts(){
-  const cur = { voice: S.voiceGate ? 'on' : 'off', speed: S.speed, sound: S.sound ? 'on' : 'off' };
+  const cur = { voice: S.voiceGate ? 'on' : 'off', speed: S.speed, sound: S.sound ? 'on' : 'off', scene: S.scene };
   document.querySelectorAll('#panel [data-set]').forEach(b => b.setAttribute('aria-pressed', String(cur[b.dataset.set] === b.dataset.v)));
   drawMeter();
 }
@@ -519,6 +603,7 @@ $('panel').addEventListener('click', e => {
     const k = b.dataset.set, v = b.dataset.v;
     if (k === 'voice') S.voiceGate = v === 'on';
     if (k === 'speed') S.speed = v;
+    if (k === 'scene') setScene(v);
     if (k === 'sound'){ S.sound = v === 'on'; applyVol(); }
     markOpts();
   } else if (b.id === 'closeBtn') closePanel();
