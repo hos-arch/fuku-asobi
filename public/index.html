@@ -67,7 +67,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
 <div id="intro" role="dialog" aria-labelledby="introTitle">
   <div class="card">
     <h1 id="introTitle">ふく あそび（支援者用の説明）</h1>
-    <p>いろいろな息の出し方（強く吹く、長くのばす）を楽しむための遊びです。息を吹くと、画面が応えます。場面は、風車、しゃぼん玉、笛の音から選べます（支援者メニュー）。本物の風車や笛、シャボン玉と組み合わせて使ってください。</p>
+    <p>いろいろな息の出し方（強く吹く、長くのばす）を楽しむための遊びです。息を吹くと、画面が応えます。場面は、風車、しゃぼん玉、笛の音、ろうそくから選べます（支援者メニュー）。本物の風車や笛、シャボン玉と組み合わせて使ってください。</p>
     <h2>すすめ方</h2>
     <ol>
       <li>「はじめる」を押し、マイクを許可する。最初の2秒は周りの音を測るので、静かにする。</li>
@@ -120,6 +120,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
         <button class="opt" data-set="scene" data-v="wheel">風車</button>
         <button class="opt" data-set="scene" data-v="bubble">しゃぼん玉</button>
         <button class="opt" data-set="scene" data-v="fue">笛の音</button>
+        <button class="opt" data-set="scene" data-v="candle">ろうそく</button>
       </div>
     </div>
 
@@ -365,13 +366,13 @@ function fueNote(strength){
 // 見た目の強さ（やさしい・ふつう・はっきり）
 // 笛：rings〜size、風車：sMax〜trail、しゃぼん玉：bMax〜popStars
 const LOOK = {
-  soft:   { rings: 2, w: 0.025, wash: 0.22, petals: 4,  size: 0.8,
+  soft:   { rings: 2, w: 0.025, wash: 0.22, petals: 4,  size: 0.8, cShapes: 3,
             sMax: 4,  sRate: 4,  sW: 0.02,  sA: 0.30, sColor: false, stars: 2, starSize: 0.8, trail: 0.6,
             bMax: 8,  bRate: 2.5, bThr: 0.65, tint: 0.8, edge: 1.0, popStars: 0 },
-  mid:    { rings: 3, w: 0.045, wash: 0.36, petals: 9,  size: 1,
+  mid:    { rings: 3, w: 0.045, wash: 0.36, petals: 9,  size: 1, cShapes: 5,
             sMax: 7,  sRate: 7,  sW: 0.03,  sA: 0.45, sColor: false, stars: 3, starSize: 1,   trail: 1,
             bMax: 16, bRate: 4,   bThr: 0.6,  tint: 1.2, edge: 1.4, popStars: 2 },
-  strong: { rings: 4, w: 0.07,  wash: 0.5,  petals: 16, size: 1.2,
+  strong: { rings: 4, w: 0.07,  wash: 0.5,  petals: 16, size: 1.2, cShapes: 8,
             sMax: 12, sRate: 12, sW: 0.045, sA: 0.65, sColor: true,  stars: 6, starSize: 1.3, trail: 1.4,
             bMax: 26, bRate: 7,   bThr: 0.45, tint: 2.0, edge: 2.2, popStars: 4 }
 };
@@ -651,6 +652,107 @@ function drawFue(){
   });
 }
 
+// ---- ろうそく ----
+// 強く吹くと火が消え、煙が星やハートになってふわっと消える。5秒ほどで、またやさしく灯る。
+const cdl = { lit: true, outT: 0, strong: 0, fade: 1, smoke: [] };
+const SMOKE_COL = ['#f4b8c4', '#fff0c8', '#b9e3cf', '#b8d8ee', '#d9c8ef'];
+function resetCandle(){ cdl.lit = true; cdl.outT = 0; cdl.strong = 0; cdl.fade = 1; cdl.smoke.length = 0; }
+function candlePos(){ return { x: cx, y: cy + R * 0.2 }; }
+function spawnSmoke(p, L){
+  cdl.smoke.push({
+    kind: Math.random() < 0.5 ? 'star' : 'heart',
+    x: p.x + rnd(-1, 1) * R * 0.05, y: p.y - R * 0.1,
+    vx: rnd(-1, 1) * R * 0.05, vy: -R * rnd(0.18, 0.3),
+    t: 0, life: rnd(3, 4.5), ph: rnd(0, 6), s: R * rnd(0.05, 0.08) * L.size,
+    rot: rnd(-0.4, 0.4), col: SMOKE_COL[Math.floor(Math.random() * SMOKE_COL.length)]
+  });
+}
+function updateCandle(dt){
+  const p = candlePos(), L = LOOK[S.look];
+  if (cdl.lit){
+    cdl.fade = Math.min(1, cdl.fade + dt * 2);
+    cdl.strong = env > 0.5 ? cdl.strong + dt : Math.max(0, cdl.strong - dt * 2);
+    if (cdl.strong > 0.35){
+      cdl.lit = false; cdl.outT = 0; cdl.strong = 0;
+      for (let i = 0; i < L.cShapes; i++) spawnSmoke(p, L);
+      bell(0.02);
+    }
+  } else {
+    cdl.outT += dt;
+    if (cdl.outT < 3 && Math.random() < dt * 2.5) spawnSmoke(p, L);
+    if (cdl.outT > 5){ cdl.lit = true; cdl.fade = 0; }
+  }
+  for (let i = cdl.smoke.length - 1; i >= 0; i--){
+    const q = cdl.smoke[i];
+    q.t += dt;
+    q.x += (q.vx + Math.sin(q.t * 1.2 + q.ph) * R * 0.03) * dt;
+    q.y += q.vy * dt;
+    if (q.t > q.life) cdl.smoke.splice(i, 1);
+  }
+}
+function roundRect(x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+}
+function drawFlame(x, y, f){
+  const lean = clamp(env * 1.2, 0, 1) * R * 0.1;
+  const sway = Math.sin(T * 6) * R * 0.008 + Math.sin(T * 2.3) * R * 0.01;
+  const h = R * (0.2 + 0.025 * Math.sin(T * 9)) * f;
+  const g = ctx.createRadialGradient(x, y - h * 0.4, 0, x, y - h * 0.4, R * 0.55);
+  g.addColorStop(0, 'rgba(255,214,140,' + (0.45 * f).toFixed(2) + ')'); g.addColorStop(1, 'rgba(255,214,140,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y - h * 0.4, R * 0.55, 0, Math.PI * 2); ctx.fill();
+  [[1, '#ffd98a'], [0.5, '#fff3cf']].forEach(([k, col]) => {
+    const hh = h * k, ox = lean * (1 - k) * 0.5;
+    ctx.beginPath(); ctx.moveTo(x, y);
+    ctx.bezierCurveTo(x + R * 0.05 * k + ox, y - hh * 0.3, x + R * 0.035 * k + ox + sway, y - hh * 0.7, x + ox + lean + sway * 1.5, y - hh);
+    ctx.bezierCurveTo(x - R * 0.035 * k + ox + sway, y - hh * 0.7, x - R * 0.05 * k + ox, y - hh * 0.3, x, y);
+    ctx.fillStyle = col; ctx.fill();
+  });
+}
+function shapePath(kind, s){
+  ctx.beginPath();
+  if (kind === 'heart'){
+    ctx.moveTo(0, s * 0.5);
+    ctx.bezierCurveTo(-s * 1.2, -s * 0.1, -s * 0.6, -s * 1.1, 0, -s * 0.4);
+    ctx.bezierCurveTo(s * 0.6, -s * 1.1, s * 1.2, -s * 0.1, 0, s * 0.5);
+  } else {
+    for (let i = 0; i < 10; i++){
+      const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? s * 0.45 : s;
+      i ? ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+  }
+  ctx.closePath();
+}
+function drawCandle(){
+  const p = candlePos(), bw = R * 0.26, bh = R * 0.95, top = p.y;
+  // ろうそくの影
+  ctx.save(); ctx.translate(R * 0.05, R * 0.06);
+  roundRect(p.x - bw / 2, top, bw, bh, bw * 0.2); ctx.fillStyle = 'rgba(90,64,40,.16)'; ctx.fill();
+  ctx.restore();
+  // 本体（生成り色、やわらかい縁）
+  roundRect(p.x - bw / 2, top, bw, bh, bw * 0.2);
+  const bg = ctx.createLinearGradient(p.x - bw / 2, 0, p.x + bw / 2, 0);
+  bg.addColorStop(0, '#fff8e8'); bg.addColorStop(1, '#f3e4c4');
+  ctx.fillStyle = bg; ctx.fill();
+  // しん
+  ctx.strokeStyle = '#4e4032'; ctx.lineWidth = Math.max(2, R * 0.015); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(p.x, top); ctx.lineTo(p.x, top - R * 0.06); ctx.stroke();
+  if (cdl.lit) drawFlame(p.x, top - R * 0.06, cdl.fade);
+  // 煙（星・ハート）
+  cdl.smoke.forEach(q => {
+    const k = q.t / q.life;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, q.t / 0.4) * (1 - k) * 0.8;
+    ctx.translate(q.x, q.y); ctx.rotate(q.rot + k * 0.5);
+    shapePath(q.kind, q.s * (1 + k * 0.4));
+    ctx.fillStyle = q.col; ctx.fill();
+    ctx.restore();
+  });
+}
+
 // ---- 背景のにじみ ----
 const WASH = [
   { x: 0.16, y: 0.22, r: 0.32, c: 'rgba(246,190,204,.26)', k: 31 },
@@ -682,13 +784,14 @@ function frame(now){
   dusk += (duskT - dusk) * Math.min(1, dt * 0.2);
   if (Math.abs(dusk - duskApplied) > 0.02){ duskApplied = dusk; applyVol(); }
   updateBreath(now, dt);
-  if (!frozen){ T += dt; if (S.scene === 'wheel') updateWheel(dt); else if (S.scene === 'bubble') updateBubble(dt); }
+  if (!frozen){ T += dt; if (S.scene === 'wheel') updateWheel(dt); else if (S.scene === 'bubble') updateBubble(dt); else if (S.scene === 'candle') updateCandle(dt); }
   fueUpdate(dt);
   ctx.fillStyle = '#f6eddc'; ctx.fillRect(0, 0, W, H);
   if (paper) ctx.drawImage(paper, 0, 0, W, H);
   drawWash();
   if (S.scene === 'wheel'){ drawWheel(); drawFx(); }
   else if (S.scene === 'bubble'){ drawBubbleScene(); drawFx(); }
+  else if (S.scene === 'candle') drawCandle();
   else drawFue();
   if (dusk > 0.001){
     ctx.fillStyle = 'rgba(226,150,118,' + (0.30 * dusk).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
@@ -701,7 +804,7 @@ requestAnimationFrame(frame);
 
 // ---- 支援者の操作 ----
 function setScene(v){
-  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles(); fueRings.length = 0; fueWashes.length = 0; fuePetals.length = 0; fueMuteUntil = 0; wasBlowing = false;
+  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles(); resetCandle(); fueRings.length = 0; fueWashes.length = 0; fuePetals.length = 0; fueMuteUntil = 0; wasBlowing = false;
   markOpts();
 }
 function setFrozen(f){
