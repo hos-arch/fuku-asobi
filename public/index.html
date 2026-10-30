@@ -366,13 +366,13 @@ function fueNote(strength){
 // 見た目の強さ（やさしい・ふつう・はっきり）
 // 笛：rings〜size、風車：sMax〜trail、しゃぼん玉：bMax〜popStars
 const LOOK = {
-  soft:   { rings: 2, w: 0.025, wash: 0.22, petals: 4,  size: 0.8, cShapes: 3,
+  soft:   { rings: 2, w: 0.025, wash: 0.22, petals: 4,  size: 0.8, cShapes: 3, flame: 2.2,
             sMax: 4,  sRate: 4,  sW: 0.02,  sA: 0.30, sColor: false, stars: 2, starSize: 0.8, trail: 0.6,
             bMax: 8,  bRate: 2.5, bThr: 0.65, tint: 0.8, edge: 1.0, popStars: 0 },
-  mid:    { rings: 3, w: 0.045, wash: 0.36, petals: 9,  size: 1, cShapes: 5,
+  mid:    { rings: 3, w: 0.045, wash: 0.36, petals: 9,  size: 1, cShapes: 5, flame: 2.8,
             sMax: 7,  sRate: 7,  sW: 0.03,  sA: 0.45, sColor: false, stars: 3, starSize: 1,   trail: 1,
             bMax: 16, bRate: 4,   bThr: 0.6,  tint: 1.2, edge: 1.4, popStars: 2 },
-  strong: { rings: 4, w: 0.07,  wash: 0.5,  petals: 16, size: 1.2, cShapes: 8,
+  strong: { rings: 4, w: 0.07,  wash: 0.5,  petals: 16, size: 1.2, cShapes: 8, flame: 3.4,
             sMax: 12, sRate: 12, sW: 0.045, sA: 0.65, sColor: true,  stars: 6, starSize: 1.3, trail: 1.4,
             bMax: 26, bRate: 7,   bThr: 0.45, tint: 2.0, edge: 2.2, popStars: 4 }
 };
@@ -698,19 +698,23 @@ function roundRect(x, y, w, h, r){
   ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
 }
 function drawFlame(x, y, f){
-  const lean = clamp(env * 1.2, 0, 1) * R * 0.1;
-  const sway = Math.sin(T * 6) * R * 0.008 + Math.sin(T * 2.3) * R * 0.01;
-  const h = R * (0.2 + 0.025 * Math.sin(T * 9)) * f;
-  const g = ctx.createRadialGradient(x, y - h * 0.4, 0, x, y - h * 0.4, R * 0.55);
+  // 火は、原点を火のつけ根にして描き、見た目の強さで大きさを変える
+  const sc = LOOK[S.look].flame * R / 100;
+  ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc);
+  const lean = clamp(env * 1.2, 0, 1) * 10;
+  const sway = Math.sin(T * 6) * 0.8 + Math.sin(T * 2.3) * 1;
+  const h = (20 + 2.5 * Math.sin(T * 9)) * f;
+  const g = ctx.createRadialGradient(0, -h * 0.4, 0, 0, -h * 0.4, 55);
   g.addColorStop(0, 'rgba(255,214,140,' + (0.45 * f).toFixed(2) + ')'); g.addColorStop(1, 'rgba(255,214,140,0)');
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y - h * 0.4, R * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, -h * 0.4, 55, 0, Math.PI * 2); ctx.fill();
   [[1, '#ffd98a'], [0.5, '#fff3cf']].forEach(([k, col]) => {
     const hh = h * k, ox = lean * (1 - k) * 0.5;
-    ctx.beginPath(); ctx.moveTo(x, y);
-    ctx.bezierCurveTo(x + R * 0.05 * k + ox, y - hh * 0.3, x + R * 0.035 * k + ox + sway, y - hh * 0.7, x + ox + lean + sway * 1.5, y - hh);
-    ctx.bezierCurveTo(x - R * 0.035 * k + ox + sway, y - hh * 0.7, x - R * 0.05 * k + ox, y - hh * 0.3, x, y);
+    ctx.beginPath(); ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(5 * k + ox, -hh * 0.3, 3.5 * k + ox + sway, -hh * 0.7, ox + lean + sway * 1.5, -hh);
+    ctx.bezierCurveTo(-3.5 * k + ox + sway, -hh * 0.7, -5 * k + ox, -hh * 0.3, 0, 0);
     ctx.fillStyle = col; ctx.fill();
   });
+  ctx.restore();
 }
 function shapePath(kind, s){
   ctx.beginPath();
