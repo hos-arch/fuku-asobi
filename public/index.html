@@ -67,7 +67,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
 <div id="intro" role="dialog" aria-labelledby="introTitle">
   <div class="card">
     <h1 id="introTitle">ふく あそび（支援者用の説明）</h1>
-    <p>いろいろな息の出し方（強く吹く、長くのばす）を楽しむための遊びです。息を吹くと、画面が応えます。場面は、風車、しゃぼん玉、笛の音、ろうそくから選べます（支援者メニュー）。本物の風車や笛、シャボン玉と組み合わせて使ってください。</p>
+    <p>いろいろな息の出し方（強く吹く、長くのばす）を楽しむための遊びです。息を吹くと、画面が応えます。場面は、風車、しゃぼん玉、笛の音、ろうそく、へび笛から選べます（支援者メニュー）。本物の風車や笛、シャボン玉と組み合わせて使ってください。</p>
     <h2>すすめ方</h2>
     <ol>
       <li>「はじめる」を押し、マイクを許可する。最初の2秒は周りの音を測るので、静かにする。</li>
@@ -121,6 +121,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
         <button class="opt" data-set="scene" data-v="bubble">しゃぼん玉</button>
         <button class="opt" data-set="scene" data-v="fue">笛の音</button>
         <button class="opt" data-set="scene" data-v="candle">ろうそく</button>
+        <button class="opt" data-set="scene" data-v="hebi">へび笛</button>
       </div>
     </div>
 
@@ -132,6 +133,16 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
         <button class="opt" data-set="look" data-v="strong">はっきり</button>
       </div>
       <p class="note">点滅はしません。風車は風のすじと残像、しゃぼん玉は玉の数と色、笛は輪と花びらが変わります。</p>
+    </div>
+
+    <div class="row">
+      <h2>へび笛の反応</h2>
+      <div class="opts">
+        <button class="opt" data-set="hebiBy" data-v="breath">息</button>
+        <button class="opt" data-set="hebiBy" data-v="whistle">へび笛の音</button>
+        <button class="opt" data-set="hebiBy" data-v="both">どちらでも</button>
+      </div>
+      <p class="note">本物のへび笛を吹いて使います。画面からは音を出しません。うまく反応しないときは、ここを切りかえてください。</p>
     </div>
 
     <div class="row">
@@ -229,13 +240,14 @@ window.addEventListener('resize', resize);
 resize();
 
 // ---- 設定（保存しない）----
-const S = { sens: 10, range: 28, voiceGate: true, peaks: 3, speed: 'm', vol: 30, sound: true, scene: 'wheel', pitch: 'mid', look: 'mid' };
+const S = { sens: 10, range: 28, voiceGate: true, peaks: 3, speed: 'm', vol: 30, sound: true, scene: 'wheel', pitch: 'mid', look: 'mid', hebiBy: 'both' };
 const SPEED = { s: 0.6, m: 1, l: 1.45 };
 let frozen = false, dusk = 0, duskT = 0, duskApplied = 0;
 
 // ---- 音と息の検出（Web Audio）----
 let AC = null, master = null, stream = null, anLow = null, anFull = null, tdLow = null, fq = null, micOn = false;
 let floorDb = -70, calibrating = null, lowDbNow = -100, peaksNow = 0;
+let floorHi = -90, hiDbNow = -160, hiConc = 0, envW = 0, onTW = 0;
 let env = 0, onT = 0, voiceHold = 0, blowT = 0;
 
 function masterTarget(){ return (S.sound && !frozen) ? (S.vol / 100) * (1 - 0.4 * dusk) : 0; }
@@ -280,7 +292,7 @@ function stopMic(){
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = null; env = 0;
 }
-function calibrate(){ calibrating = { until: performance.now() + 2000, vals: [] }; }
+function calibrate(){ calibrating = { until: performance.now() + 2000, vals: [], hvals: [] }; }
 
 function measure(){
   anLow.getFloatTimeDomainData(tdLow);
@@ -301,15 +313,24 @@ function measure(){
     if (c - m / 12 > 12) pk++;
   }
   peaksNow = pk;
+  // へび笛の音：900〜4500Hzで、いちばん強い音と、その音への集まり具合（笛は1本の音に集まる。声は広がる）
+  const j0 = Math.floor(900 / hz), j1 = Math.min(fq.length - 4, Math.ceil(4500 / hz));
+  let mx = -160, mi = j0, tot = 0;
+  for (let i = j0; i <= j1; i++){ const c = v(i); tot += Math.pow(10, c / 10); if (c > mx){ mx = c; mi = i; } }
+  let near = 0;
+  for (let i = mi - 3; i <= mi + 3; i++) near += Math.pow(10, v(i) / 10);
+  hiDbNow = mx; hiConc = tot > 0 ? near / tot : 0;
 }
 function updateBreath(now, dt){
   if (!micOn || !AC){ env += (0 - env) * Math.min(1, dt * 4); return; }
   measure();
   if (calibrating){
-    calibrating.vals.push(lowDbNow);
+    calibrating.vals.push(lowDbNow); calibrating.hvals.push(hiDbNow);
     if (now >= calibrating.until){
       const v = calibrating.vals.slice().sort((a, b) => a - b);
       floorDb = v.length ? v[Math.floor(v.length * 0.7)] : -70;
+      const hv = calibrating.hvals.slice().sort((a, b) => a - b);
+      floorHi = hv.length ? hv[Math.floor(hv.length * 0.7)] : -90;
       calibrating = null;
     }
   }
@@ -324,6 +345,12 @@ function updateBreath(now, dt){
   const kUp = 1 - Math.exp(-dt / 0.04), kDn = 1 - Math.exp(-dt / 0.18);
   env += (raw - env) * (raw > env ? kUp : kDn);
   blowT = raw > 0.04 ? blowT + dt : 0;
+  // へび笛の音（声とまちがえないよう、1本の音に集まっているときだけ）
+  let rawW = hiConc > 0.45 ? clamp((hiDbNow - (floorHi + S.sens)) / S.range, 0, 1) : 0;
+  if (calibrating || frozen) rawW = 0;
+  onTW = rawW > 0 ? onTW + dt : 0;
+  if (onTW < 0.08) rawW = 0;
+  envW += (rawW - envW) * (rawW > envW ? kUp : kDn);
   // 息が始まった瞬間を見る（一息に一音）
   const blowing = raw > 0.04;
   if (blowing && !wasBlowing && S.scene === 'fue' && now >= fueMuteUntil) fueNote(env);
@@ -757,6 +784,74 @@ function drawCandle(){
   });
 }
 
+// ---- へび笛 ----
+// 吹くと、巻いた紙がほどけて、まっすぐ伸びる。やめると、ゆっくり巻き戻る。画面からは音を出さない（本物の音を聞く）。
+const hebi = { e: 0, full: 0 };
+function hebiLevel(){ return S.hebiBy === 'breath' ? env : S.hebiBy === 'whistle' ? envW : Math.max(env, envW); }
+function updateHebi(dt){
+  const lv = hebiLevel(), target = clamp(lv * 1.15, 0, 1);
+  const tau = target > hebi.e ? 0.15 : 0.45;           // ほどけるのは早く、戻るのはゆっくり
+  hebi.e += (target - hebi.e) * (1 - Math.exp(-dt / tau));
+  // いちばん伸びたまま1.5秒続いたら、先に星を出す
+  if (hebi.e > 0.9){
+    hebi.full += dt;
+    if (hebi.full > 1.5 && hebi.full - dt <= 1.5){
+      const t = hebiGeom().tip, L = LOOK[S.look];
+      for (let i = 0; i < L.stars; i++){
+        const a = rnd(0, Math.PI * 2);
+        stars.push({ x: t.x + Math.cos(a) * R * 0.15, y: t.y + Math.sin(a) * R * 0.15, vy: -R * 0.1, t: 0, life: 2, r: R * rnd(0.05, 0.07) * L.starSize, rot: rnd(0, 1) });
+      }
+    }
+  } else hebi.full = 0;
+  for (let i = stars.length - 1; i >= 0; i--){ const q = stars[i]; q.t += dt; q.y += q.vy * dt; if (q.t > q.life) stars.splice(i, 1); }
+}
+function hebiGeom(){
+  const L = Math.min(W * 0.62, R * 2.2), x0 = cx - L * 0.45, y0 = cy;
+  const w = L * 0.085, r0 = L * 0.12, gap = w * 1.1;
+  const s = hebi.e * L;
+  const flut = LOOK[S.look].trail;
+  const pts = [];
+  // まっすぐの部分（少しだけ波うつ）
+  const n1 = Math.max(2, Math.round(s / 6));
+  for (let i = 0; i <= n1; i++){
+    const u = i / n1, x = x0 + s * u;
+    const y = y0 + Math.sin(u * 5 - T * 7) * w * 0.25 * hebi.e * u * flut;
+    pts.push({ x, y });
+  }
+  // 残りは、うず巻き
+  const end = pts[pts.length - 1];
+  let rem = (1 - hebi.e) * L, th = 0, r = r0;
+  const c = { x: end.x, y: end.y + r0 };
+  while (rem > 0 && r > gap * 0.4){
+    const d = 0.12;
+    th += d; r = r0 - gap * th / (Math.PI * 2);
+    rem -= Math.max(r, 1) * d;
+    pts.push({ x: c.x + r * Math.sin(th), y: c.y - r * Math.cos(th) });
+  }
+  return { pts, w, x0, y0, L, tip: pts[pts.length - 1] };
+}
+const HEBI_COL = ['#f4b8c4', '#b8d8ee', '#fff0c8', '#b9e3cf'];
+function drawHebi(){
+  const g = hebiGeom();
+  const path = () => { ctx.beginPath(); g.pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); };
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // 影
+  ctx.save(); ctx.translate(R * 0.04, R * 0.06);
+  path(); ctx.strokeStyle = 'rgba(90,64,40,.16)'; ctx.lineWidth = g.w; ctx.stroke();
+  ctx.restore();
+  // 紙（地の色と、しま模様）
+  path(); ctx.strokeStyle = HEBI_COL[0]; ctx.lineWidth = g.w; ctx.stroke();
+  ctx.lineCap = 'butt';
+  path(); ctx.setLineDash([g.w * 0.7, g.w * 0.7]); ctx.strokeStyle = HEBI_COL[1]; ctx.lineWidth = g.w; ctx.stroke(); ctx.setLineDash([]);
+  ctx.lineCap = 'round';
+  path(); ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = g.w * 0.25; ctx.stroke();
+  // 吹き口
+  const mw = g.L * 0.13, mh = g.w * 1.5;
+  ctx.fillStyle = 'rgba(90,64,40,.16)'; ctx.fillRect(g.x0 - mw + R * 0.04, g.y0 - mh / 2 + R * 0.06, mw, mh);
+  ctx.fillStyle = '#e9d3a8'; ctx.fillRect(g.x0 - mw, g.y0 - mh / 2, mw, mh);
+  ctx.fillStyle = '#f4b8c4'; ctx.fillRect(g.x0 - mw * 0.35, g.y0 - mh / 2, mw * 0.18, mh);
+}
+
 // ---- 背景のにじみ ----
 const WASH = [
   { x: 0.16, y: 0.22, r: 0.32, c: 'rgba(246,190,204,.26)', k: 31 },
@@ -788,7 +883,7 @@ function frame(now){
   dusk += (duskT - dusk) * Math.min(1, dt * 0.2);
   if (Math.abs(dusk - duskApplied) > 0.02){ duskApplied = dusk; applyVol(); }
   updateBreath(now, dt);
-  if (!frozen){ T += dt; if (S.scene === 'wheel') updateWheel(dt); else if (S.scene === 'bubble') updateBubble(dt); else if (S.scene === 'candle') updateCandle(dt); }
+  if (!frozen){ T += dt; if (S.scene === 'wheel') updateWheel(dt); else if (S.scene === 'bubble') updateBubble(dt); else if (S.scene === 'candle') updateCandle(dt); else if (S.scene === 'hebi') updateHebi(dt); }
   fueUpdate(dt);
   ctx.fillStyle = '#f6eddc'; ctx.fillRect(0, 0, W, H);
   if (paper) ctx.drawImage(paper, 0, 0, W, H);
@@ -796,6 +891,7 @@ function frame(now){
   if (S.scene === 'wheel'){ drawWheel(); drawFx(); }
   else if (S.scene === 'bubble'){ drawBubbleScene(); drawFx(); }
   else if (S.scene === 'candle') drawCandle();
+  else if (S.scene === 'hebi'){ drawHebi(); drawFx(); }
   else drawFue();
   if (dusk > 0.001){
     ctx.fillStyle = 'rgba(226,150,118,' + (0.30 * dusk).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
@@ -808,7 +904,7 @@ requestAnimationFrame(frame);
 
 // ---- 支援者の操作 ----
 function setScene(v){
-  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles(); resetCandle(); fueRings.length = 0; fueWashes.length = 0; fuePetals.length = 0; fueMuteUntil = 0; wasBlowing = false;
+  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles(); resetCandle(); hebi.e = 0; hebi.full = 0; fueRings.length = 0; fueWashes.length = 0; fuePetals.length = 0; fueMuteUntil = 0; wasBlowing = false;
   markOpts();
 }
 function setFrozen(f){
@@ -844,10 +940,10 @@ function drawMeter(){
   $('mText').textContent = Math.round(env * 100) + '%';
   $('micNote').textContent = !micOn ? 'マイク：まだ使っていません'
     : calibrating ? 'マイク：周りの音を測っています…'
-    : 'マイク：使っています（周りの音 ' + floorDb.toFixed(0) + ' dB／いま ' + lowDbNow.toFixed(0) + ' dB／声らしい山 ' + peaksNow + '）';
+    : 'マイク：使っています（周りの音 ' + floorDb.toFixed(0) + ' dB／いま ' + lowDbNow.toFixed(0) + ' dB／声らしい山 ' + peaksNow + '／へび笛の音 ' + Math.round(envW * 100) + '%）';
 }
 function markOpts(){
-  const cur = { voice: S.voiceGate ? 'on' : 'off', speed: S.speed, sound: S.sound ? 'on' : 'off', scene: S.scene, pitch: S.pitch, look: S.look };
+  const cur = { voice: S.voiceGate ? 'on' : 'off', speed: S.speed, sound: S.sound ? 'on' : 'off', scene: S.scene, pitch: S.pitch, look: S.look, hebiBy: S.hebiBy };
   document.querySelectorAll('#panel [data-set]').forEach(b => b.setAttribute('aria-pressed', String(cur[b.dataset.set] === b.dataset.v)));
   drawMeter();
 }
@@ -871,6 +967,7 @@ $('panel').addEventListener('click', e => {
     if (k === 'scene') setScene(v);
     if (k === 'pitch') S.pitch = v;
     if (k === 'look') S.look = v;
+    if (k === 'hebiBy') S.hebiBy = v;
     if (k === 'sound'){ S.sound = v === 'on'; applyVol(); }
     markOpts();
   } else if (b.id === 'closeBtn') closePanel();
