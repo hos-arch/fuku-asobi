@@ -9,8 +9,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#f6eddc;overscroll-beh
 canvas{display:block;width:100%;height:100%;touch-action:none}
 
 /* 支援者メニューを開く点（子どもからは目立たない） */
-#gear{position:fixed;top:12px;right:12px;width:44px;height:44px;border:none;border-radius:50%;background:transparent;padding:0;opacity:.2;cursor:pointer;transition:opacity .3s;z-index:5}
-#gear.hold{opacity:.6}
+#gear{position:fixed;top:12px;right:12px;width:44px;height:44px;border:none;border-radius:50%;background:transparent;padding:0;opacity:.2;cursor:pointer;transition:opacity .3s;z-index:5;overflow:hidden}
+#gear.hold{opacity:.7}
+#gearFill{position:absolute;left:0;right:0;bottom:0;height:0;background:rgba(74,100,66,.28);pointer-events:none;transition:height .25s ease-out}
+#gear.hold #gearFill{height:100%;transition:height 1.2s linear}
+#gear svg{position:relative}
 #gear svg{width:100%;height:100%;display:block}
 
 /* 支援者用の操作（文字なし・うすく・小さく） */
@@ -95,6 +98,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
 </div>
 
 <button id="gear" aria-label="支援者メニュー（長押し）" title="長押しで支援者メニュー">
+  <span id="gearFill"></span>
   <svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="13" cy="22" r="3" fill="#3a3326"/><circle cx="22" cy="22" r="3" fill="#3a3326"/><circle cx="31" cy="22" r="3" fill="#3a3326"/></svg>
 </button>
 
@@ -469,14 +473,27 @@ function drawBubble(x, y, r, a, ph){
     pts.push({ x: x + Math.cos(an) * rr, y: y + Math.sin(an) * rr });
   }
   smoothClosed(pts);
-  const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
-  g.addColorStop(0, 'rgba(255,255,255,.75)');
-  g.addColorStop(0.7, 'rgba(218,236,246,.30)');
-  g.addColorStop(1, 'rgba(186,216,236,.50)');
+  // 全体は、ほとんど透けた、うすい水色。ガラスの硬さは出さない
+  const g = ctx.createRadialGradient(x, y, r * 0.2, x, y, r);
+  g.addColorStop(0, 'rgba(255,255,255,.18)');
+  g.addColorStop(0.75, 'rgba(226,242,250,.22)');
+  g.addColorStop(1, 'rgba(206,232,244,.34)');
   ctx.fillStyle = g; ctx.fill();
-  ctx.strokeStyle = 'rgba(120,160,185,.5)'; ctx.lineWidth = Math.max(1.2, r * 0.03); ctx.stroke();
-  ctx.beginPath(); ctx.arc(x, y, r * 0.7, Math.PI * 1.1, Math.PI * 1.38);
-  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = Math.max(2, r * 0.07); ctx.lineCap = 'round'; ctx.stroke();
+  // 縁は、やわらかくにじませる（くっきりした線を使わない）
+  ctx.shadowColor = 'rgba(160,200,220,.55)'; ctx.shadowBlur = Math.max(2, r * 0.08);
+  ctx.strokeStyle = 'rgba(170,206,224,.35)'; ctx.lineWidth = Math.max(1, r * 0.02); ctx.stroke();
+  ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  // ほんのり、ピンクとミントのにじみ（虹色の光の名残）
+  const p = ctx.createRadialGradient(x + r * 0.35, y + r * 0.35, 0, x + r * 0.35, y + r * 0.35, r * 0.7);
+  p.addColorStop(0, 'rgba(248,206,222,.16)'); p.addColorStop(1, 'rgba(248,206,222,0)');
+  ctx.fillStyle = p; ctx.fill();
+  const q = ctx.createRadialGradient(x - r * 0.4, y + r * 0.2, 0, x - r * 0.4, y + r * 0.2, r * 0.6);
+  q.addColorStop(0, 'rgba(196,236,216,.16)'); q.addColorStop(1, 'rgba(196,236,216,0)');
+  ctx.fillStyle = q; ctx.fill();
+  // 光の反射は、硬いすじではなく、ぼんやりした白い丸
+  const h = ctx.createRadialGradient(x - r * 0.42, y - r * 0.42, 0, x - r * 0.42, y - r * 0.42, r * 0.34);
+  h.addColorStop(0, 'rgba(255,255,255,.85)'); h.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = h; ctx.fill();
   ctx.restore();
 }
 function drawBubbleScene(){
