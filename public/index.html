@@ -124,6 +124,16 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
     </div>
 
     <div class="row">
+      <h2>笛の見た目の強さ</h2>
+      <div class="opts">
+        <button class="opt" data-set="look" data-v="soft">やさしい</button>
+        <button class="opt" data-set="look" data-v="mid">ふつう</button>
+        <button class="opt" data-set="look" data-v="strong">はっきり</button>
+      </div>
+      <p class="note">点滅はしません。広がりと色の強さが変わります。</p>
+    </div>
+
+    <div class="row">
       <h2>笛の音の高さ</h2>
       <div class="opts">
         <button class="opt" data-set="pitch" data-v="low">低め</button>
@@ -218,7 +228,7 @@ window.addEventListener('resize', resize);
 resize();
 
 // ---- 設定（保存しない）----
-const S = { sens: 10, range: 28, voiceGate: true, peaks: 3, speed: 'm', vol: 30, sound: true, scene: 'wheel', pitch: 'mid' };
+const S = { sens: 10, range: 28, voiceGate: true, peaks: 3, speed: 'm', vol: 30, sound: true, scene: 'wheel', pitch: 'mid', look: 'mid' };
 const SPEED = { s: 0.6, m: 1, l: 1.45 };
 let frozen = false, dusk = 0, duskT = 0, duskApplied = 0;
 
@@ -322,7 +332,7 @@ function updateBreath(now, dt){
 let fueMuteUntil = 0, wasBlowing = false, lastBlowAt = 0, noteN = 0;
 const FUE_COL = ['#f4b8c4', '#fff0c8', '#b9e3cf', '#b8d8ee', '#d9c8ef'];
 const FUE_NOTE = [523.25, 587.33, 659.25, 783.99, 880];   // ド・レ・ミ・ソ・ラ
-let fueRings = [], fueCore = { t: 0, col: FUE_COL[0] };
+let fueRings = [], fueCore = { t: 0, col: FUE_COL[0], st: 0.5 };
 function fueNote(strength){
   if (!AC || !master || !S.sound) return;
   const idx = noteN % FUE_NOTE.length;
@@ -343,8 +353,28 @@ function fueNote(strength){
     o.start(t); o.stop(t + 1.2);
   });
   fueMuteUntil = performance.now() + 1100;
-  fueRings.push({ t: 0, col: FUE_COL[k], life: 1.6 });
-  fueCore = { t: 0, col: FUE_COL[k] };
+  const L = LOOK[S.look], st = clamp(strength, 0.2, 1);
+  for (let i = 0; i < L.rings; i++) fueRings.push({ t: -i * 0.18, col: FUE_COL[(k + i) % FUE_COL.length], life: 1.8, w: L.w });
+  fueWashes.push({ t: 0, col: FUE_COL[k], life: 2.2, a: L.wash * (0.6 + 0.4 * st) });
+  const n = Math.round(L.petals * (0.6 + 0.6 * st));
+  for (let i = 0; i < n; i++){
+    fuePetals.push({ x: cx + rnd(-R * 0.25, R * 0.25), y: cy + rnd(-R * 0.1, R * 0.1), vx: rnd(-1, 1) * R * 0.35, vy: -R * rnd(0.35, 0.8), rot: rnd(0, 6), vr: rnd(-1.5, 1.5), t: -rnd(0, 0.25), life: rnd(2, 3), s: R * rnd(0.05, 0.1) * L.size, col: FUE_COL[(k + i) % FUE_COL.length] });
+  }
+  fueCore = { t: 0, col: FUE_COL[k], st };
+}
+// 見た目の強さ（やさしい・ふつう・はっきり）
+const LOOK = {
+  soft: { rings: 2, w: 0.025, wash: 0.22, petals: 4, size: 0.8 },
+  mid:  { rings: 3, w: 0.045, wash: 0.36, petals: 9, size: 1 },
+  strong: { rings: 4, w: 0.07, wash: 0.5, petals: 16, size: 1.2 }
+};
+let fueWashes = [], fuePetals = [];
+function fueUpdate(dt){
+  fueRings.forEach(r => r.t += dt); fueRings = fueRings.filter(r => r.t < r.life);
+  fueWashes.forEach(w => w.t += dt); fueWashes = fueWashes.filter(w => w.t < w.life);
+  fuePetals.forEach(p => { p.t += dt; if (p.t < 0) return; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += R * 0.25 * dt; p.vx *= 0.99; p.rot += p.vr * dt; });
+  fuePetals = fuePetals.filter(p => p.t < p.life);
+  fueCore.t += dt;
 }
 const PITCH = { low: 0.8, mid: 1, high: 1.25 };
 
@@ -559,25 +589,46 @@ function drawBubbleScene(){
 // ---- 笛の音 ----
 // 息を吹くと、音が1つ鳴り、やわらかい輪が広がる。息の強さで、音の大きさと中心の円の大きさが変わる。
 function drawFue(){
-  // 中心の、やわらかい円（息の強さで、ふくらむ）
-  const rr = R * (0.28 + 0.22 * env + 0.05 * Math.sin(T * 1.6));
-  ctx.save(); ctx.globalAlpha = 0.5;
+  // 色のにじみが、画面いっぱいに広がる
+  fueWashes.forEach(w => {
+    if (w.t < 0) return;
+    const k = w.t / w.life, a = w.a * Math.min(1, w.t / 0.25) * (1 - k);
+    const R2 = Math.max(W, H) * (0.3 + 0.8 * k);
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R2);
+    g.addColorStop(0, w.col); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); ctx.restore();
+  });
+  // 中心の円が、音に合わせてはずむ（ぽよん）
+  const bounce = 1 + 0.2 * Math.pow(1 - clamp(fueCore.t / 0.5, 0, 1), 2) * fueCore.st;
+  const rr = R * (0.3 + 0.18 * env) * bounce;
+  ctx.save();
   const g = ctx.createRadialGradient(cx, cy, rr * 0.2, cx, cy, rr);
-  g.addColorStop(0, fueCore.col); g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+  g.addColorStop(0, fueCore.col); g.addColorStop(1, 'rgba(255,255,255,0.1)');
+  ctx.globalAlpha = 0.75; ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2);
   ctx.fillStyle = g; ctx.fill();
   ctx.restore();
-  // 音の輪
+  // 太い輪が、何重にも広がる
   fueRings.forEach(r => {
+    if (r.t < 0) return;
     const k = r.t / r.life;
-    ctx.save(); ctx.globalAlpha = (1 - k) * 0.6;
+    ctx.save(); ctx.globalAlpha = (1 - k) * 0.8;
     ctx.beginPath();
-    for (let i = 0; i <= 48; i++){
-      const a = i / 48 * Math.PI * 2, q = R * (0.5 + k * 1.2) * (1 + 0.02 * Math.sin(a * 3 + r.t * 6));
+    for (let i = 0; i <= 56; i++){
+      const a = i / 56 * Math.PI * 2, q = R * (0.45 + k * 1.6) * (1 + 0.025 * Math.sin(a * 3 + r.t * 5));
       const px = cx + Math.cos(a) * q, py = cy + Math.sin(a) * q;
       i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
     }
-    ctx.closePath(); ctx.strokeStyle = r.col; ctx.lineWidth = Math.max(2, R * 0.04); ctx.stroke();
+    ctx.closePath(); ctx.strokeStyle = r.col; ctx.lineWidth = Math.max(3, R * r.w * (1 - k * 0.5)); ctx.stroke();
+    ctx.restore();
+  });
+  // 花びらが、ふわふわ上がって消える
+  fuePetals.forEach(p => {
+    if (p.t < 0) return;
+    const k = p.t / p.life;
+    ctx.save(); ctx.globalAlpha = (1 - clamp((k - 0.5) / 0.5, 0, 1)) * 0.85;
+    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.beginPath(); ctx.ellipse(0, 0, p.s, p.s * 0.55, 0, 0, Math.PI * 2);
+    ctx.fillStyle = p.col; ctx.fill();
     ctx.restore();
   });
 }
@@ -614,7 +665,7 @@ function frame(now){
   if (Math.abs(dusk - duskApplied) > 0.02){ duskApplied = dusk; applyVol(); }
   updateBreath(now, dt);
   if (!frozen){ T += dt; if (S.scene === 'wheel') updateWheel(dt); else if (S.scene === 'bubble') updateBubble(dt); }
-  fueRings.forEach(r => r.t += dt); fueRings = fueRings.filter(r => r.t < r.life); fueCore.t += dt;
+  fueUpdate(dt);
   ctx.fillStyle = '#f6eddc'; ctx.fillRect(0, 0, W, H);
   if (paper) ctx.drawImage(paper, 0, 0, W, H);
   drawWash();
@@ -632,7 +683,7 @@ requestAnimationFrame(frame);
 
 // ---- 支援者の操作 ----
 function setScene(v){
-  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles(); fueRings.length = 0; fueMuteUntil = 0; wasBlowing = false;
+  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles(); fueRings.length = 0; fueWashes.length = 0; fuePetals.length = 0; fueMuteUntil = 0; wasBlowing = false;
   markOpts();
 }
 function setFrozen(f){
@@ -671,7 +722,7 @@ function drawMeter(){
     : 'マイク：使っています（周りの音 ' + floorDb.toFixed(0) + ' dB／いま ' + lowDbNow.toFixed(0) + ' dB／声らしい山 ' + peaksNow + '）';
 }
 function markOpts(){
-  const cur = { voice: S.voiceGate ? 'on' : 'off', speed: S.speed, sound: S.sound ? 'on' : 'off', scene: S.scene, pitch: S.pitch };
+  const cur = { voice: S.voiceGate ? 'on' : 'off', speed: S.speed, sound: S.sound ? 'on' : 'off', scene: S.scene, pitch: S.pitch, look: S.look };
   document.querySelectorAll('#panel [data-set]').forEach(b => b.setAttribute('aria-pressed', String(cur[b.dataset.set] === b.dataset.v)));
   drawMeter();
 }
@@ -694,6 +745,7 @@ $('panel').addEventListener('click', e => {
     if (k === 'speed') S.speed = v;
     if (k === 'scene') setScene(v);
     if (k === 'pitch') S.pitch = v;
+    if (k === 'look') S.look = v;
     if (k === 'sound'){ S.sound = v === 'on'; applyVol(); }
     markOpts();
   } else if (b.id === 'closeBtn') closePanel();
