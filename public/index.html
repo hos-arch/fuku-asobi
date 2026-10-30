@@ -67,7 +67,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
 <div id="intro" role="dialog" aria-labelledby="introTitle">
   <div class="card">
     <h1 id="introTitle">ふく あそび（支援者用の説明）</h1>
-    <p>いろいろな息の出し方（強く吹く、長くのばす）を楽しむための遊びです。息を吹くと、画面の風車が回ります。本物の風車や笛、シャボン玉と組み合わせて使ってください。</p>
+    <p>いろいろな息の出し方（強く吹く、長くのばす）を楽しむための遊びです。息を吹くと、画面が応えます。場面は、風車、しゃぼん玉、笛の音から選べます（支援者メニュー）。本物の風車や笛、シャボン玉と組み合わせて使ってください。</p>
     <h2>すすめ方</h2>
     <ol>
       <li>「はじめる」を押し、マイクを許可する。最初の2秒は周りの音を測るので、静かにする。</li>
@@ -119,6 +119,16 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
       <div class="opts">
         <button class="opt" data-set="scene" data-v="wheel">風車</button>
         <button class="opt" data-set="scene" data-v="bubble">しゃぼん玉</button>
+        <button class="opt" data-set="scene" data-v="fue">笛の音</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <h2>笛の音の高さ</h2>
+      <div class="opts">
+        <button class="opt" data-set="pitch" data-v="low">低め</button>
+        <button class="opt" data-set="pitch" data-v="mid">ふつう</button>
+        <button class="opt" data-set="pitch" data-v="high">高め</button>
       </div>
     </div>
 
@@ -208,7 +218,7 @@ window.addEventListener('resize', resize);
 resize();
 
 // ---- 設定（保存しない）----
-const S = { sens: 10, range: 28, voiceGate: true, peaks: 3, speed: 'm', vol: 30, sound: true, scene: 'wheel' };
+const S = { sens: 10, range: 28, voiceGate: true, peaks: 3, speed: 'm', vol: 30, sound: true, scene: 'wheel', pitch: 'mid' };
 const SPEED = { s: 0.6, m: 1, l: 1.45 };
 let frozen = false, dusk = 0, duskT = 0, duskApplied = 0;
 
@@ -297,12 +307,46 @@ function updateBreath(now, dt){
   voiceHold = voice ? 0.3 : Math.max(0, voiceHold - dt);
   if (S.voiceGate && voiceHold > 0) raw = 0;
   if (calibrating || frozen) raw = 0;
+  if (now < fueMuteUntil) raw = 0;     // 笛の音を鳴らしている間は、自分の音を息と数えない
   onT = raw > 0 ? onT + dt : 0;
   if (onT < 0.08) raw = 0;     // 出だしの0.08秒は待つ（物音や声の出だしで回さない）
   const kUp = 1 - Math.exp(-dt / 0.04), kDn = 1 - Math.exp(-dt / 0.18);
   env += (raw - env) * (raw > env ? kUp : kDn);
   blowT = raw > 0.04 ? blowT + dt : 0;
+  // 息が始まった瞬間を見る（一息に一音）
+  const blowing = raw > 0.04;
+  if (blowing && !wasBlowing && S.scene === 'fue' && now >= fueMuteUntil) fueNote(env);
+  if (!blowing && now - lastBlowAt > 200) wasBlowing = false;
+  if (blowing){ lastBlowAt = now; wasBlowing = true; }
 }
+let fueMuteUntil = 0, wasBlowing = false, lastBlowAt = 0, noteN = 0;
+const FUE_COL = ['#f4b8c4', '#fff0c8', '#b9e3cf', '#b8d8ee', '#d9c8ef'];
+const FUE_NOTE = [523.25, 587.33, 659.25, 783.99, 880];   // ド・レ・ミ・ソ・ラ
+let fueRings = [], fueCore = { t: 0, col: FUE_COL[0] };
+function fueNote(strength){
+  if (!AC || !master || !S.sound) return;
+  const idx = noteN % FUE_NOTE.length;
+  // 順番に上がって、下がって、また上がる（ド・レ・ミ・ソ・ラ・ソ・ミ・レ）
+  const seq = [0, 1, 2, 3, 4, 3, 2, 1];
+  const k = seq[noteN % seq.length];
+  noteN++;
+  const f = FUE_NOTE[k] * PITCH[S.pitch];
+  const t = AC.currentTime, g = clamp(0.05 + strength * 0.11, 0.05, 0.14);
+  [[1, g], [2, g * 0.12]].forEach(([m, gg]) => {
+    const o = AC.createOscillator(), gn = AC.createGain();
+    o.type = 'sine'; o.frequency.value = f * m;
+    gn.gain.setValueAtTime(0.0001, t);
+    gn.gain.linearRampToValueAtTime(gg, t + 0.14);          // ふくらませて入る（急に鳴らさない）
+    gn.gain.setValueAtTime(gg, t + 0.45);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);  // ゆっくり消える
+    o.connect(gn); gn.connect(master);
+    o.start(t); o.stop(t + 1.2);
+  });
+  fueMuteUntil = performance.now() + 1100;
+  fueRings.push({ t: 0, col: FUE_COL[k], life: 1.6 });
+  fueCore = { t: 0, col: FUE_COL[k] };
+}
+const PITCH = { low: 0.8, mid: 1, high: 1.25 };
 
 // 鈴の音（高めでやわらかい。マイクの判定に入らない高さ）
 const BELL = [784, 880, 988, 1175, 1319, 1175, 988, 880];
@@ -512,6 +556,32 @@ function drawBubbleScene(){
   if (bub.big) drawBubble(bub.big.x, bub.big.y, bub.big.r, 1, 0);
 }
 
+// ---- 笛の音 ----
+// 息を吹くと、音が1つ鳴り、やわらかい輪が広がる。息の強さで、音の大きさと中心の円の大きさが変わる。
+function drawFue(){
+  // 中心の、やわらかい円（息の強さで、ふくらむ）
+  const rr = R * (0.28 + 0.22 * env + 0.05 * Math.sin(T * 1.6));
+  ctx.save(); ctx.globalAlpha = 0.5;
+  const g = ctx.createRadialGradient(cx, cy, rr * 0.2, cx, cy, rr);
+  g.addColorStop(0, fueCore.col); g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+  ctx.fillStyle = g; ctx.fill();
+  ctx.restore();
+  // 音の輪
+  fueRings.forEach(r => {
+    const k = r.t / r.life;
+    ctx.save(); ctx.globalAlpha = (1 - k) * 0.6;
+    ctx.beginPath();
+    for (let i = 0; i <= 48; i++){
+      const a = i / 48 * Math.PI * 2, q = R * (0.5 + k * 1.2) * (1 + 0.02 * Math.sin(a * 3 + r.t * 6));
+      const px = cx + Math.cos(a) * q, py = cy + Math.sin(a) * q;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath(); ctx.strokeStyle = r.col; ctx.lineWidth = Math.max(2, R * 0.04); ctx.stroke();
+    ctx.restore();
+  });
+}
+
 // ---- 背景のにじみ ----
 const WASH = [
   { x: 0.16, y: 0.22, r: 0.32, c: 'rgba(246,190,204,.26)', k: 31 },
@@ -543,12 +613,14 @@ function frame(now){
   dusk += (duskT - dusk) * Math.min(1, dt * 0.2);
   if (Math.abs(dusk - duskApplied) > 0.02){ duskApplied = dusk; applyVol(); }
   updateBreath(now, dt);
-  if (!frozen){ T += dt; if (S.scene === 'wheel') updateWheel(dt); else updateBubble(dt); }
+  if (!frozen){ T += dt; if (S.scene === 'wheel') updateWheel(dt); else if (S.scene === 'bubble') updateBubble(dt); }
+  fueRings.forEach(r => r.t += dt); fueRings = fueRings.filter(r => r.t < r.life); fueCore.t += dt;
   ctx.fillStyle = '#f6eddc'; ctx.fillRect(0, 0, W, H);
   if (paper) ctx.drawImage(paper, 0, 0, W, H);
   drawWash();
   if (S.scene === 'wheel'){ drawWheel(); drawFx(); }
-  else drawBubbleScene();
+  else if (S.scene === 'bubble') drawBubbleScene();
+  else drawFue();
   if (dusk > 0.001){
     ctx.fillStyle = 'rgba(226,150,118,' + (0.30 * dusk).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = 'rgba(90,70,110,' + (0.10 * dusk).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
@@ -560,7 +632,7 @@ requestAnimationFrame(frame);
 
 // ---- 支援者の操作 ----
 function setScene(v){
-  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles();
+  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles(); fueRings.length = 0; fueMuteUntil = 0; wasBlowing = false;
   markOpts();
 }
 function setFrozen(f){
@@ -599,7 +671,7 @@ function drawMeter(){
     : 'マイク：使っています（周りの音 ' + floorDb.toFixed(0) + ' dB／いま ' + lowDbNow.toFixed(0) + ' dB／声らしい山 ' + peaksNow + '）';
 }
 function markOpts(){
-  const cur = { voice: S.voiceGate ? 'on' : 'off', speed: S.speed, sound: S.sound ? 'on' : 'off', scene: S.scene };
+  const cur = { voice: S.voiceGate ? 'on' : 'off', speed: S.speed, sound: S.sound ? 'on' : 'off', scene: S.scene, pitch: S.pitch };
   document.querySelectorAll('#panel [data-set]').forEach(b => b.setAttribute('aria-pressed', String(cur[b.dataset.set] === b.dataset.v)));
   drawMeter();
 }
@@ -621,6 +693,7 @@ $('panel').addEventListener('click', e => {
     if (k === 'voice') S.voiceGate = v === 'on';
     if (k === 'speed') S.speed = v;
     if (k === 'scene') setScene(v);
+    if (k === 'pitch') S.pitch = v;
     if (k === 'sound'){ S.sound = v === 'on'; applyVol(); }
     markOpts();
   } else if (b.id === 'closeBtn') closePanel();
