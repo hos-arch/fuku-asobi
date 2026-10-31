@@ -67,7 +67,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
 <div id="intro" role="dialog" aria-labelledby="introTitle">
   <div class="card">
     <h1 id="introTitle">ふく あそび（支援者用の説明）</h1>
-    <p>いろいろな息の出し方（強く吹く、長くのばす）を楽しむための遊びです。息を吹くと、画面が応えます。場面は、風車、しゃぼん玉、笛の音、ろうそく、へび笛から選べます（支援者メニュー）。本物の風車や笛、シャボン玉と組み合わせて使ってください。</p>
+    <p>いろいろな息の出し方（強く吹く、長くのばす）を楽しむための遊びです。息を吹くと、画面が応えます。場面は、風車、しゃぼん玉、笛の音、ろうそく、へび笛、風船から選べます（支援者メニュー）。本物の風車や笛、シャボン玉、風船と組み合わせて使ってください。</p>
     <h2>すすめ方</h2>
     <ol>
       <li>「はじめる」を押し、マイクを許可する。最初の2秒は周りの音を測るので、静かにする。</li>
@@ -122,6 +122,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offse
         <button class="opt" data-set="scene" data-v="fue">笛の音</button>
         <button class="opt" data-set="scene" data-v="candle">ろうそく</button>
         <button class="opt" data-set="scene" data-v="hebi">へび笛</button>
+        <button class="opt" data-set="scene" data-v="balloon">風船</button>
       </div>
     </div>
 
@@ -391,17 +392,20 @@ function fueNote(strength){
   fueCore = { t: 0, col: FUE_COL[k], st };
 }
 // 見た目の強さ（やさしい・ふつう・はっきり）
-// 笛：rings〜size、風車：sMax〜trail、しゃぼん玉：bMax〜popStars
+// 笛：rings〜size、風車：sMax〜trail、しゃぼん玉：bMax〜popStars、風船：bnRate〜bnDeep
 const LOOK = {
   soft:   { rings: 2, w: 0.025, wash: 0.22, petals: 4,  size: 0.8, cShapes: 3, flame: 2.2,
             sMax: 4,  sRate: 4,  sW: 0.02,  sA: 0.30, sColor: false, stars: 2, starSize: 0.8, trail: 0.6,
-            bMax: 8,  bRate: 2.5, bThr: 0.65, tint: 0.8, edge: 1.0, popStars: 0 },
+            bMax: 8,  bRate: 2.5, bThr: 0.65, tint: 0.8, edge: 1.0, popStars: 0,
+            bnRate: 0.85, bnEdge: 0.18, bnWob: 0.8, bnDeep: false },
   mid:    { rings: 3, w: 0.045, wash: 0.36, petals: 9,  size: 1, cShapes: 5, flame: 2.8,
             sMax: 7,  sRate: 7,  sW: 0.03,  sA: 0.45, sColor: false, stars: 3, starSize: 1,   trail: 1,
-            bMax: 16, bRate: 4,   bThr: 0.6,  tint: 1.2, edge: 1.4, popStars: 2 },
+            bMax: 16, bRate: 4,   bThr: 0.6,  tint: 1.2, edge: 1.4, popStars: 2,
+            bnRate: 1,    bnEdge: 0.28, bnWob: 1,   bnDeep: false },
   strong: { rings: 4, w: 0.07,  wash: 0.5,  petals: 16, size: 1.2, cShapes: 8, flame: 3.4,
             sMax: 12, sRate: 12, sW: 0.045, sA: 0.65, sColor: true,  stars: 6, starSize: 1.3, trail: 1.4,
-            bMax: 26, bRate: 7,   bThr: 0.45, tint: 2.0, edge: 2.2, popStars: 4 }
+            bMax: 26, bRate: 7,   bThr: 0.45, tint: 2.0, edge: 2.2, popStars: 4,
+            bnRate: 1.2,  bnEdge: 0.45, bnWob: 1.5, bnDeep: true }
 };
 let fueWashes = [], fuePetals = [];
 function fueUpdate(dt){
@@ -856,6 +860,113 @@ function drawHebi(){
   ctx.fillStyle = '#f4b8c4'; ctx.fillRect(g.bx - mh / 2, g.by + mw * 0.17, mh, mw * 0.18);
 }
 
+// ---- 風船 ----
+// 吹くと、吹き口に付いた風船がふくらむ。いっぱいにふくらむと、ふわっと上へ飛んでいき、新しい風船が出てくる。
+// 割れない（大きな音を出さない）。息をやめると、ゆっくりしぼむ。
+const bn = { b: null, floats: [], hold: 0, idle: 0, cool: 0, col: 0, mile: 0 };
+function resetBalloon(){ bn.b = { k: 0 }; bn.floats.length = 0; bn.hold = 0; bn.idle = 0; bn.cool = 0; bn.mile = 0; bn.col = 0; }
+const nozzleY = () => H * 0.78;
+function balloonPos(k){
+  const r = R * (0.12 + 0.78 * k);
+  return { r, x: cx, y: nozzleY() - r * 1.16 + R * 0.01 };
+}
+function updateBalloon(dt){
+  const L = LOOK[S.look];
+  for (let i = stars.length - 1; i >= 0; i--){ const q = stars[i]; q.t += dt; q.y += q.vy * dt; if (q.t > q.life) stars.splice(i, 1); }
+  if (bn.cool > 0){
+    bn.cool -= dt;
+    if (bn.cool <= 0){ bn.b = { k: 0 }; bn.col = (bn.col + 1) % COL.length; bn.mile = 0; }
+  }
+  const b = bn.b;
+  if (b){
+    if (env > 0.05){
+      bn.idle = 0;
+      b.k = Math.min(1, b.k + (0.12 + 0.36 * env) * SPEED[S.speed] * L.bnRate * dt);
+      const m = Math.floor(b.k * 4);
+      if (m > bn.mile){ bn.mile = m; if (m < 4 && T - lastBell > 0.14){ lastBell = T; bell(0.03); } }
+    } else {
+      bn.idle += dt;
+      if (bn.idle > 0.8 && b.k < 1){ b.k = Math.max(0, b.k - 0.04 * dt); bn.mile = Math.floor(b.k * 4); }
+    }
+    if (b.k >= 1){
+      bn.hold += dt;
+      if (bn.hold > 0.5){
+        // いっぱいになったら、ふわっと離れて上へ飛んでいく
+        const p = balloonPos(1);
+        if (bn.floats.length < 4) bn.floats.push({ x: p.x, y: p.y, r: p.r, ci: bn.col, t: 0, ph: rnd(0, 6), vy: -R * 0.1 });
+        for (let i = 0; i < L.stars; i++){
+          const a = rnd(0, Math.PI * 2);
+          stars.push({ x: p.x + Math.cos(a) * p.r * 1.1, y: p.y + Math.sin(a) * p.r * 1.1, vy: -R * 0.08, t: 0, life: 2, r: R * rnd(0.05, 0.07) * L.starSize, rot: rnd(0, 1) });
+        }
+        bell(0.035); setTimeout(() => bell(0.03), 150); setTimeout(() => bell(0.025), 300);
+        bn.b = null; bn.cool = 1.2; bn.hold = 0; bn.idle = 0; bn.mile = 0;
+      }
+    } else bn.hold = 0;
+  }
+  for (let i = bn.floats.length - 1; i >= 0; i--){
+    const f = bn.floats[i];
+    f.t += dt;
+    f.vy = Math.max(-R * 0.55, f.vy - R * 0.12 * dt);
+    f.y += f.vy * dt;
+    f.x += Math.sin(f.t * 1.1 + f.ph) * R * 0.06 * dt;
+    if (f.y < -f.r * 2.4 - R * 0.8) bn.floats.splice(i, 1);
+  }
+}
+// 風船のかたち（少し縦長で、下がすぼまる）
+function drawBalloon(x, y, r, ci, wob, sx, ph, withKnot){
+  const L = LOOK[S.look];
+  const n = 28, pts = [];
+  for (let i = 0; i < n; i++){
+    const t = i / n * Math.PI * 2;
+    const nar = 1 - 0.16 * Math.max(0, -Math.cos(t));
+    const w = 1 + wob * 0.006 * Math.sin(i * 3 + T * 1.3 + ph);
+    const tip = Math.cos(t) < -0.8 ? r * 0.3 * (-Math.cos(t) - 0.8) : 0;
+    pts.push({ x: x + Math.sin(t) * r * nar * sx * w, y: y - Math.cos(t) * r * 1.12 * w + tip });
+  }
+  const base = L.bnDeep ? FOLD[ci] : COL[ci];
+  // 影
+  ctx.save(); ctx.translate(R * 0.04, R * 0.06); smoothClosed(pts); ctx.fillStyle = 'rgba(90,64,40,.14)'; ctx.fill(); ctx.restore();
+  // 地の色
+  smoothClosed(pts); ctx.fillStyle = base; ctx.fill();
+  // やわらかい光（左上）とかげ（右下）。くっきりした反射は使わない
+  const h = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, 0, x - r * 0.35, y - r * 0.4, r * 1.1);
+  h.addColorStop(0, 'rgba(255,255,255,.55)'); h.addColorStop(1, 'rgba(255,255,255,0)');
+  smoothClosed(pts); ctx.fillStyle = h; ctx.fill();
+  const d = ctx.createRadialGradient(x + r * 0.4, y + r * 0.5, 0, x + r * 0.4, y + r * 0.5, r * 1.1);
+  d.addColorStop(0, 'rgba(90,64,40,.14)'); d.addColorStop(1, 'rgba(90,64,40,0)');
+  smoothClosed(pts); ctx.fillStyle = d; ctx.fill();
+  ctx.strokeStyle = 'rgba(110,80,70,' + L.bnEdge.toFixed(2) + ')'; ctx.lineWidth = Math.max(1, R * 0.008); ctx.stroke();
+  if (withKnot){
+    const ny = y + r * 1.16, kk = Math.max(r * 0.07, R * 0.015);
+    ctx.beginPath(); ctx.moveTo(x, ny - kk * 0.3); ctx.lineTo(x - kk, ny + kk * 1.3); ctx.lineTo(x + kk, ny + kk * 1.3); ctx.closePath();
+    ctx.fillStyle = L.bnDeep ? 'rgba(110,70,60,.45)' : FOLD[ci]; ctx.fill();
+  }
+}
+function drawBalloonScene(){
+  const L = LOOK[S.look], ny = nozzleY();
+  // 吹き口
+  const nw = R * 0.2, nh = R * 0.22;
+  ctx.fillStyle = 'rgba(90,64,40,.16)'; ctx.fillRect(cx - nw / 2 + R * 0.04, ny + R * 0.06, nw, nh);
+  ctx.fillStyle = '#e9d3a8'; ctx.fillRect(cx - nw / 2, ny, nw, nh);
+  ctx.fillStyle = '#f4b8c4'; ctx.fillRect(cx - nw / 2, ny + nh * 0.3, nw, nh * 0.2);
+  // 飛んでいく風船（ひもを引きながら）
+  bn.floats.forEach(f => {
+    const knotY = f.y + f.r * 1.16;
+    const sw = Math.sin(f.t * 1.6 + f.ph) * R * 0.08;
+    ctx.save(); ctx.strokeStyle = 'rgba(120,96,70,.55)'; ctx.lineWidth = Math.max(1, R * 0.012); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(f.x, knotY); ctx.quadraticCurveTo(f.x + sw, knotY + R * 0.3, f.x - sw * 0.5, knotY + R * 0.7); ctx.stroke(); ctx.restore();
+    drawBalloon(f.x, f.y, f.r, f.ci, 1, 1, f.ph, true);
+  });
+  // 吹き口に付いている風船（吹くと、ほんの少しふくらみ方がゆれる）
+  const b = bn.b;
+  if (b){
+    const p = balloonPos(b.k);
+    const tension = Math.pow(b.k, 3);
+    const pulse = 1 + 0.025 * Math.sin(T * 9) * clamp(env * 2, 0, 1) * L.bnWob;
+    drawBalloon(p.x, p.y, p.r, bn.col, (0.5 + 1.5 * tension) * L.bnWob, pulse, 0, false);
+  }
+}
+
 // ---- 背景のにじみ ----
 const WASH = [
   { x: 0.16, y: 0.22, r: 0.32, c: 'rgba(246,190,204,.26)', k: 31 },
@@ -887,7 +998,7 @@ function frame(now){
   dusk += (duskT - dusk) * Math.min(1, dt * 0.2);
   if (Math.abs(dusk - duskApplied) > 0.02){ duskApplied = dusk; applyVol(); }
   updateBreath(now, dt);
-  if (!frozen){ T += dt; if (S.scene === 'wheel') updateWheel(dt); else if (S.scene === 'bubble') updateBubble(dt); else if (S.scene === 'candle') updateCandle(dt); else if (S.scene === 'hebi') updateHebi(dt); }
+  if (!frozen){ T += dt; if (S.scene === 'wheel') updateWheel(dt); else if (S.scene === 'bubble') updateBubble(dt); else if (S.scene === 'candle') updateCandle(dt); else if (S.scene === 'hebi') updateHebi(dt); else if (S.scene === 'balloon') updateBalloon(dt); }
   fueUpdate(dt);
   ctx.fillStyle = '#f6eddc'; ctx.fillRect(0, 0, W, H);
   if (paper) ctx.drawImage(paper, 0, 0, W, H);
@@ -896,6 +1007,7 @@ function frame(now){
   else if (S.scene === 'bubble'){ drawBubbleScene(); drawFx(); }
   else if (S.scene === 'candle') drawCandle();
   else if (S.scene === 'hebi'){ drawHebi(); drawFx(); }
+  else if (S.scene === 'balloon'){ drawBalloonScene(); drawFx(); }
   else drawFue();
   if (dusk > 0.001){
     ctx.fillStyle = 'rgba(226,150,118,' + (0.30 * dusk).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
@@ -908,7 +1020,7 @@ requestAnimationFrame(frame);
 
 // ---- 支援者の操作 ----
 function setScene(v){
-  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles(); resetCandle(); hebi.e = 0; hebi.full = 0; fueRings.length = 0; fueWashes.length = 0; fuePetals.length = 0; fueMuteUntil = 0; wasBlowing = false;
+  S.scene = v; vel = 0; streaks.length = 0; stars.length = 0; resetBubbles(); resetCandle(); hebi.e = 0; hebi.full = 0; resetBalloon(); fueRings.length = 0; fueWashes.length = 0; fuePetals.length = 0; fueMuteUntil = 0; wasBlowing = false;
   markOpts();
 }
 function setFrozen(f){
