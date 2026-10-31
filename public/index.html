@@ -806,29 +806,33 @@ function updateHebi(dt){
   for (let i = stars.length - 1; i >= 0; i--){ const q = stars[i]; q.t += dt; q.y += q.vy * dt; if (q.t > q.life) stars.splice(i, 1); }
 }
 function hebiGeom(){
-  const L = Math.min(W * 0.62, R * 2.2), x0 = cx - L * 0.45, y0 = cy;
+  // 下の吹き口から、上へまっすぐ伸びる（画面の下から上へ）
+  const L = Math.min(H * 0.62, R * 2.2), mw = L * 0.13;
+  const bx = cx, by = cy + (L - mw) / 2;            // by は吹き口の上の端（紙の根もと）
   const w = L * 0.085, r0 = L * 0.12, gap = w * 1.1;
   const s = hebi.e * L;
   const flut = LOOK[S.look].trail;
-  const pts = [];
-  // まっすぐの部分（少しだけ波うつ）
+  // 紙は、まず「ほどけた部分」を、紙の上向きの長さ u と、横のずれ v で考える
+  const loc = [];
+  // まっすぐの部分（少しだけ横に波うつ）
   const n1 = Math.max(2, Math.round(s / 6));
   for (let i = 0; i <= n1; i++){
-    const u = i / n1, x = x0 + s * u;
-    const y = y0 + Math.sin(u * 5 - T * 7) * w * 0.25 * hebi.e * u * flut;
-    pts.push({ x, y });
+    const f = i / n1;
+    loc.push({ u: s * f, v: Math.sin(f * 5 - T * 7) * w * 0.25 * hebi.e * f * flut });
   }
-  // 残りは、うず巻き
-  const end = pts[pts.length - 1];
+  // 残りは、うず巻き（吹き口の横に巻いておき、ほどけると上へ送り出される）
+  const e0 = loc[loc.length - 1];
   let rem = (1 - hebi.e) * L, th = 0, r = r0;
-  const c = { x: end.x, y: end.y + r0 };
+  const c = { u: e0.u, v: e0.v + r0 };
   while (rem > 0 && r > gap * 0.4){
     const d = 0.12;
     th += d; r = r0 - gap * th / (Math.PI * 2);
     rem -= Math.max(r, 1) * d;
-    pts.push({ x: c.x + r * Math.sin(th), y: c.y - r * Math.cos(th) });
+    loc.push({ u: c.u + r * Math.sin(th), v: c.v - r * Math.cos(th) });
   }
-  return { pts, w, x0, y0, L, tip: pts[pts.length - 1] };
+  // 画面の座標に直す（u は上向き、v は右向き）
+  const pts = loc.map(p => ({ x: bx + p.v, y: by - p.u }));
+  return { pts, w, bx, by, mw, L, tip: pts[pts.length - 1] };
 }
 const HEBI_COL = ['#f4b8c4', '#b8d8ee', '#fff0c8', '#b9e3cf'];
 function drawHebi(){
@@ -846,10 +850,10 @@ function drawHebi(){
   ctx.lineCap = 'round';
   path(); ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = g.w * 0.25; ctx.stroke();
   // 吹き口
-  const mw = g.L * 0.13, mh = g.w * 1.5;
-  ctx.fillStyle = 'rgba(90,64,40,.16)'; ctx.fillRect(g.x0 - mw + R * 0.04, g.y0 - mh / 2 + R * 0.06, mw, mh);
-  ctx.fillStyle = '#e9d3a8'; ctx.fillRect(g.x0 - mw, g.y0 - mh / 2, mw, mh);
-  ctx.fillStyle = '#f4b8c4'; ctx.fillRect(g.x0 - mw * 0.35, g.y0 - mh / 2, mw * 0.18, mh);
+  const mw = g.mw, mh = g.w * 1.5;
+  ctx.fillStyle = 'rgba(90,64,40,.16)'; ctx.fillRect(g.bx - mh / 2 + R * 0.04, g.by + R * 0.06, mh, mw);
+  ctx.fillStyle = '#e9d3a8'; ctx.fillRect(g.bx - mh / 2, g.by, mh, mw);
+  ctx.fillStyle = '#f4b8c4'; ctx.fillRect(g.bx - mh / 2, g.by + mw * 0.17, mh, mw * 0.18);
 }
 
 // ---- 背景のにじみ ----
